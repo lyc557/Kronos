@@ -36,19 +36,24 @@ def plot_prediction(kline_df, pred_df):
 
     plt.tight_layout()
     plt.savefig('prediction_result.png')
-    print("Prediction plot saved to prediction_result.png")
+    print("预测结果图已保存至 prediction_result.png")
 
 
 # 1. Load Model and Tokenizer
+print("1. 正在加载模型和分词器... (Tokenizer: NeoQuasar/Kronos-Tokenizer-base, Model: NeoQuasar/Kronos-base)")
 tokenizer = KronosTokenizer.from_pretrained("NeoQuasar/Kronos-Tokenizer-base")
-model = Kronos.from_pretrained("NeoQuasar/Kronos-small")
+model = Kronos.from_pretrained("NeoQuasar/Kronos-base")
 
 # 2. Instantiate Predictor
+print("2. 正在初始化预测器... (Device: cuda:0, Max Context: 512)")
 predictor = KronosPredictor(model, tokenizer, device="cuda:0", max_context=512)
 
 # 3. Prepare Data
+print("3. 正在准备数据... (Loading: ./data/XSHG_5min_600977.csv)")
 df = pd.read_csv("./data/XSHG_5min_600977.csv")
 df['timestamps'] = pd.to_datetime(df['timestamps'])
+print(f"   数据已加载，共 {len(df)} 行。")
+print("   使用的特征列: ['open', 'high', 'low', 'close', 'volume', 'amount']")
 
 lookback = 400
 pred_len = 120
@@ -58,6 +63,8 @@ x_timestamp = df.loc[:lookback-1, 'timestamps']
 y_timestamp = df.loc[lookback:lookback+pred_len-1, 'timestamps']
 
 # 4. Make Prediction
+print(f"4. 正在进行预测... (Lookback: {lookback}, Prediction Length: {pred_len})")
+print(f"   参数设置: T=1.0, top_p=0.9, sample_count=1")
 pred_df = predictor.predict(
     df=x_df,
     x_timestamp=x_timestamp,
@@ -70,7 +77,8 @@ pred_df = predictor.predict(
 )
 
 # 5. Visualize Results
-print("Forecasted Data Head:")
+print("5. 正在可视化结果...")
+print("预测数据前几行:")
 print(pred_df.head())
 
 # Combine historical and forecasted data for plotting
