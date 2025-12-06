@@ -35,7 +35,8 @@ def plot_prediction(kline_df, pred_df):
     ax2.grid(True)
 
     plt.tight_layout()
-    plt.show()
+    plt.savefig('prediction_result.png')
+    print("Prediction plot saved to prediction_result.png")
 
 
 # 1. Load Model and Tokenizer
