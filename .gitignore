@@ -73,3 +73,5 @@ venv.bak/
 *.temp
 temp/
 tmp/
+finetune_csv/finetuned/HK_ali_09988_kline_5min_all/basemodel/
+finetune_csv/finetuned/HK_ali_09988_kline_5min_all/tokenizer/best_model/
