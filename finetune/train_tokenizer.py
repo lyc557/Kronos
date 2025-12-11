@@ -73,19 +73,20 @@ def create_dataloaders(config: dict, rank: int, world_size: int):
 
 def train_model(model, device, config, save_dir, logger, rank, world_size):
     """
-    The main training and validation loop for the tokenizer.
-
-    Args:
-        model (DDP): The DDP-wrapped model to train.
-        device (torch.device): The device for the current process.
-        config (dict): Configuration dictionary.
-        save_dir (str): Directory to save checkpoints.
-        logger (comet_ml.Experiment): Comet logger instance.
-        rank (int): Global rank of the process.
-        world_size (int): Total number of processes.
-
-    Returns:
-        tuple: A tuple containing the trained model and a dictionary of results.
+    Tokenizer 的主训练与验证循环。
+    
+    训练流程：
+    1. 创建分布式数据加载器 (DataLoaders)。
+    2. 初始化优化器 (AdamW) 和学习率调度器 (OneCycleLR)。
+    3. 开始 Epoch 循环：
+       - 训练阶段：
+         - 喂入数据 (batch_x)。
+         - 前向传播 (model(batch_x)) 计算 Loss (VQ Loss + Reconstruction Loss)。
+         - 反向传播与参数更新。
+         - 梯度累积：如果是小 batch_size，累积几次梯度再 step。
+       - 验证阶段：
+         - 在验证集上评估 Loss，不更新参数。
+         - 如果验证集 Loss 创新低，保存当前模型为 'best_model'。
     """
     start_time = time.time()
     if rank == 0:

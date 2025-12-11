@@ -59,7 +59,24 @@ def create_dataloaders(config: dict, rank: int, world_size: int):
 
 def train_model(model, tokenizer, device, config, save_dir, logger, rank, world_size):
     """
-    The main training and validation loop for the predictor.
+    Predictor (Base Model) 的主训练与验证循环。
+    
+    关键点：
+    1. 输入数据首先经过 Tokenizer 编码，转化为离散的 Tokens。
+    2. Predictor 接收 Tokens 序列，学习预测下一个 Token。
+    3. 这是一个自回归 (Auto-regressive) 任务，类似 GPT。
+    
+    流程：
+    1. 准备数据加载器。
+    2. 初始化优化器与调度器。
+    3. Epoch 循环：
+       - 获取 batch 数据。
+       - **Tokenizer 编码**：使用冻结的 tokenizer 将价格序列转为 token 序列。
+       - **Predictor 训练**：
+         - 输入：Tokens 序列
+         - 目标：预测下一个 Token
+         - Loss：交叉熵损失 (CrossEntropyLoss)
+       - 验证与保存最佳模型。
     """
     start_time = time.time()
     if rank == 0:
