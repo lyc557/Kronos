@@ -2,33 +2,53 @@
 #这是一份模板config，用于kronos的csv自定义数据微调
 
 data:
+  # 数据文件路径（CSV格式）
   data_path: "/home/ubuntu/chengtay_code/Kronos/finetune_csv/data/HK_ali_09988_kline_5min_all.csv"
+  # 历史回顾窗口：模型"看"过去多少个时间步的数据来做预测 (例如 512 个 5分钟K线)
   lookback_window: 512
+  # 预测窗口：模型需要预测未来多少个时间步 (例如 48 个 5分钟K线)
   predict_window: 48
+  # 最大上下文长度：通常与 lookback_window 保持一致或略大，限制输入序列的最大长度
   max_context: 512
+  # 数据截断值：对归一化后的数据进行截断，防止极端异常值影响模型训练 (例如超过5倍标准差的值被强行拉回)
   clip: 5.0
-  # dataset split ratio
-  train_ratio: 0.9
-  val_ratio: 0.1
-  test_ratio: 0.0
+  # 数据集划分比例
+  train_ratio: 0.9  # 90% 用于训练
+  val_ratio: 0.1    # 10% 用于验证 (监控模型是否过拟合)
+  test_ratio: 0.0   # 0% 用于测试 (微调通常不需要额外的测试集，或者可以在预测脚本中单独切分)
 
 training:
-  # control the training epochs of tokenizer and basemodel
+  # Tokenizer (分词器) 的训练轮数：负责将连续价格数据转化为离散 Token
   tokenizer_epochs: 30
+  # Base Model (预测模型) 的训练轮数：负责学习 Token 的序列规律
   basemodel_epochs: 20
-  batch_size: 32
+  # 批次大小：一次训练喂给模型多少条数据。显存够大可以调大，有助于梯度稳定；显存爆了就调小。
+  batch_size: 64
+  # 日志打印频率：每隔多少个 batch 打印一次训练信息
   log_interval: 50
+  # 数据加载进程数：
+  # - 0: 主进程加载 (最慢，调试用)
+  # - >0: 多进程并行加载 (快，但费 CPU 和 内存)。如果 CPU 100% 导致卡顿，建议调小 (如 2 或 4)。
   num_workers: 6
+  # 随机种子：固定后可以复现训练结果
   seed: 42
   
+  # 学习率 (Learning Rate)：
+  # - Tokenizer 通常需要大一点的学习率来快速适应数据分布
   tokenizer_learning_rate: 0.0002
+  # - Predictor (Base Model) 通常需要极小的学习率，以避免破坏预训练好的知识 (灾难性遗忘)
   predictor_learning_rate: 0.000001
   
+  # AdamW 优化器参数 (通常保持默认即可)：
+  # - beta1, beta2: 控制梯度的一阶和二阶矩估计，影响收敛平稳性
   adam_beta1: 0.9
   adam_beta2: 0.95
+  # - weight_decay: 权重衰减 (L2 正则化)，防止模型参数变得过大，抑制过拟合
   adam_weight_decay: 0.1
   
-  # gradient accumulation steps for tokenizer training
+  # 梯度累积步数：
+  # 如果显存太小只能开小 batch_size，可以通过累积梯度来模拟大 batch_size 的效果。
+  # 实际 batch_size = batch_size * accumulation_steps
   accumulation_steps: 1
 
 # model path configuration
