@@ -191,7 +191,12 @@ def train_model(model, device, config, save_dir, logger, rank, world_size):
         dist.all_reduce(val_loss_sum_tensor, op=dist.ReduceOp.SUM)
         dist.all_reduce(val_count_tensor, op=dist.ReduceOp.SUM)
 
-        avg_val_loss = val_loss_sum_tensor.item() / val_count_tensor.item() if val_count_tensor.item() > 0 else 0
+        if val_count_tensor.item() > 0:
+            avg_val_loss = val_loss_sum_tensor.item() / val_count_tensor.item()
+        else:
+            avg_val_loss = float('inf')
+            if rank == 0:
+                print("\n[Warning] Validation set is empty. Setting val_loss to inf.")
 
         # --- End of Epoch Summary & Checkpointing (Master Process Only) ---
         if rank == 0:

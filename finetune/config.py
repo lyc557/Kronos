@@ -86,7 +86,7 @@ class Config:
         # =================================================================
         # Experiment Logging & Saving (实验记录与保存)
         # =================================================================
-        self.use_comet = True # 是否使用 Comet ML 记录实验
+        self.use_comet = False # 是否使用 Comet ML 记录实验
         self.comet_config = {
             # It is highly recommended to load secrets from environment variables
             # for security purposes. Example: os.getenv("COMET_API_KEY")
@@ -115,8 +115,8 @@ class Config:
         # TODO: Update these paths to your pretrained model locations.
         # These can be local paths or Hugging Face Hub model identifiers.
         # 预训练模型路径：从这里加载初始模型权重
-        self.pretrained_tokenizer_path = "path/to/your/Kronos-Tokenizer-base"
-        self.pretrained_predictor_path = "path/to/your/Kronos-small"
+        self.pretrained_tokenizer_path = "NeoQuasar/Kronos-Tokenizer-base"
+        self.pretrained_predictor_path = "NeoQuasar/Kronos-base"
 
         # Paths to the fine-tuned models, derived from the save_path.
         # These will be generated automatically during training.

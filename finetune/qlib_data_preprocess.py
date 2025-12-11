@@ -65,6 +65,24 @@ class QlibDataPreprocessor:
         data_df = QlibDataLoader(config=data_fields_qlib).load(
             self.config.instrument, real_start_time, real_end_time
         )
+
+        # --- Debug Info ---
+        if not data_df.empty:
+            print(f"\n[Debug] Raw Qlib Data Loaded. Rows: {len(data_df)}")
+            try:
+                if 'datetime' in data_df.index.names:
+                    dates = data_df.index.get_level_values('datetime')
+                    print(f"[Debug] Time Range: {dates.min()} to {dates.max()}")
+                if 'instrument' in data_df.index.names:
+                    insts = data_df.index.get_level_values('instrument').unique()
+                    print(f"[Debug] Instruments Loaded: {len(insts)}")
+                    print(f"[Debug] Sample Instruments: {insts[:5].tolist()}")
+            except Exception as e:
+                print(f"[Debug] Error inspecting index: {e}")
+        else:
+            print("\n[Debug] Warning: QlibDataLoader returned empty data!")
+        # ------------------
+
         data_df = data_df.stack().unstack(level=1)  # Reshape for easier access.
 
         symbol_list = list(data_df.columns)
@@ -88,6 +106,11 @@ class QlibDataPreprocessor:
                 continue
 
             self.data[symbol] = symbol_df
+
+        print(f"\n[Debug] Processing Complete. Total valid symbols: {len(self.data)}")
+        if self.data:
+            sample_sym = list(self.data.keys())[0]
+            print(f"[Debug] Example Symbol '{sample_sym}' Date Range: {self.data[sample_sym].index.min()} to {self.data[sample_sym].index.max()}")
 
     def prepare_dataset(self):
         """
