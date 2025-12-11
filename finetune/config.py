@@ -19,7 +19,7 @@ class Config:
         # Overall time range for data loading from Qlib.
         # 数据加载总时间范围：从Qlib加载数据的起止时间
         self.dataset_begin_time = "2011-01-01"
-        self.dataset_end_time = '2025-06-05'
+        self.dataset_end_time = '2025-12-05'
 
         # Sliding window parameters for creating samples.
         # 滑动窗口参数：决定了如何构建训练样本
