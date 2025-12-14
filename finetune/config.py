@@ -14,7 +14,8 @@ class Config:
         # 默认路径通常是 ~/.qlib/qlib_data/cn_data
         self.qlib_data_path = "~/.qlib/qlib_data/cn_data"
         # 股票池：指定要训练的股票集合，如 'csi300' (沪深300), 'csi500' (中证500) 或 'all' (全市场)
-        self.instrument = 'csi300'
+        # self.instrument = 'csi300'
+        self.instrument = ['SH600009']
 
         # Overall time range for data loading from Qlib.
         # 数据加载总时间范围：从Qlib加载数据的起止时间
@@ -137,10 +138,14 @@ class Config:
         self.backtest_benchmark = self._set_benchmark(self.instrument)
 
     def _set_benchmark(self, instrument):
+        if isinstance(instrument, list):
+            return "SH000300"
+            
         dt_benchmark = {
             'csi800': "SH000906",
             'csi1000': "SH000852",
             'csi300': "SH000300",
+            'csi500': "SH000905",
         }
         if instrument in dt_benchmark:
             return dt_benchmark[instrument]
