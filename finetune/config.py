@@ -12,7 +12,7 @@ class Config:
         # TODO: Update this path to your Qlib data directory.
         # Qlib数据存储路径：这里存放了从Qlib下载的原始金融数据（如股票日线数据）
         # 默认路径通常是 ~/.qlib/qlib_data/cn_data
-        self.qlib_data_path = "/home/ubuntu/.qlib/qlib_data/cn_data"
+        self.qlib_data_path = "~/.qlib/qlib_data/cn_data"
         # 股票池：指定要训练的股票集合，如 'csi300' (沪深300), 'csi500' (中证500) 或 'all' (全市场)
         self.instrument = 'csi300'
 
