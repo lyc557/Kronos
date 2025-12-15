@@ -14,8 +14,8 @@ class Config:
         # 默认路径通常是 ~/.qlib/qlib_data/cn_data
         self.qlib_data_path = "~/.qlib/qlib_data/cn_data"
         # 股票池：指定要训练的股票集合，如 'csi300' (沪深300), 'csi500' (中证500) 或 'all' (全市场)
-        # self.instrument = 'csi300'
-        self.instrument = ['SH600009']
+        self.instrument = 'csi300'
+        # self.instrument = ['SH600009']
 
         # Overall time range for data loading from Qlib.
         # 数据加载总时间范围：从Qlib加载数据的起止时间
@@ -42,10 +42,10 @@ class Config:
         # to account for the `lookback_window`.
         # 数据集划分：将时间轴划分为训练集、验证集、测试集、回测集
         # 注意：为了防止未来信息泄露，必须严格按时间顺序切分
-        self.train_time_range = ["2011-01-01", "2022-12-31"]  # 训练集：用于模型学习
-        self.val_time_range = ["2022-09-01", "2024-06-30"]    # 验证集：用于调参和早停
-        self.test_time_range = ["2024-04-01", "2025-06-05"]   # 测试集：用于最终评估
-        self.backtest_time_range = ["2024-07-01", "2025-06-05"] # 回测集：用于策略回测
+        self.train_time_range = ["2011-01-01", "2019-12-31"]  # 训练集：用于模型学习
+        self.val_time_range = ["2020-01-01", "2020-12-31"]    # 验证集：用于调参和早停
+        self.test_time_range = ["2021-01-01", "2021-12-31"]   # 测试集：用于最终评估
+        self.backtest_time_range = ["2022-01-01", "2022-12-31"] # 回测集：用于策略回测
 
         # TODO: Directory to save the processed, pickled datasets.
         # 预处理数据保存路径：处理好的 .pkl 文件会存放在这里，下次可以直接加载，无需重复处理
@@ -87,16 +87,12 @@ class Config:
         # =================================================================
         # Experiment Logging & Saving (实验记录与保存)
         # =================================================================
-        self.use_comet = False # 是否使用 Comet ML 记录实验
-        self.comet_config = {
-            # It is highly recommended to load secrets from environment variables
-            # for security purposes. Example: os.getenv("COMET_API_KEY")
-            "api_key": "YOUR_COMET_API_KEY",
-            "project_name": "Kronos-Finetune-Demo",
-            "workspace": "your_comet_workspace" # TODO: Change to your Comet ML workspace name
+        self.use_mlflow = True # 是否使用 MLflow 记录实验
+        self.mlflow_config = {
+            "tracking_uri": "http://10.40.0.174:5001", # TODO: Change to your MLflow tracking URI
+            "experiment_name": "Kronos-Finetune-Demo",
         }
-        self.comet_tag = 'finetune_demo'
-        self.comet_name = 'finetune_demo'
+        self.mlflow_run_name = 'finetune_demo'
 
         # Base directory for saving model checkpoints and results.
         # Using a general 'outputs' directory is a common practice.

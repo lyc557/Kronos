@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-import comet_ml
+import mlflow
 
 # Ensure project root is in path
 sys.path.append("../")
@@ -205,7 +205,7 @@ def train_model(model, device, config, save_dir, logger, rank, world_size):
             print(f"Time This Epoch: {format_time(time.time() - epoch_start_time)}")
             print(f"Total Time Elapsed: {format_time(time.time() - start_time)}\n")
             if logger:
-                logger.log_metric('val_tokenizer_loss_epoch', avg_val_loss, epoch=epoch_idx)
+                logger.log_metric('val_tokenizer_loss_epoch', avg_val_loss, step=epoch_idx)
 
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
@@ -213,7 +213,7 @@ def train_model(model, device, config, save_dir, logger, rank, world_size):
                 model.module.save_pretrained(save_path)
                 print(f"Best model saved to {save_path} (Val Loss: {best_val_loss:.4f})")
                 if logger:
-                    logger.log_model("best_model", save_path)
+                    logger.log_artifacts(save_path, artifact_path="best_model")
 
         dist.barrier()  # Ensure all processes finish the epoch before starting the next one.
 
@@ -232,7 +232,7 @@ def main(config: dict):
     save_dir = os.path.join(config['save_path'], config['tokenizer_save_folder_name'])
 
     # Logger and summary setup (master process only)
-    comet_logger, master_summary = None, {}
+    logger, master_summary = None, {}
     if rank == 0:
         os.makedirs(os.path.join(save_dir, 'checkpoints'), exist_ok=True)
         master_summary = {
@@ -240,16 +240,13 @@ def main(config: dict):
             'save_directory': save_dir,
             'world_size': world_size,
         }
-        if config['use_comet']:
-            comet_logger = comet_ml.Experiment(
-                api_key=config['comet_config']['api_key'],
-                project_name=config['comet_config']['project_name'],
-                workspace=config['comet_config']['workspace'],
-            )
-            comet_logger.add_tag(config['comet_tag'])
-            comet_logger.set_name(config['comet_name'])
-            comet_logger.log_parameters(config)
-            print("Comet Logger Initialized.")
+        if config.get('use_mlflow', False):
+            mlflow.set_tracking_uri(config['mlflow_config']['tracking_uri'])
+            mlflow.set_experiment(config['mlflow_config']['experiment_name'])
+            mlflow.start_run(run_name=config['mlflow_run_name'])
+            mlflow.log_params(config)
+            logger = mlflow
+            print("MLflow Logger Initialized.")
 
     dist.barrier()  # Ensure save directory is created before proceeding
 
@@ -263,7 +260,7 @@ def main(config: dict):
 
     # Start Training
     _, dt_result = train_model(
-        model, device, config, save_dir, comet_logger, rank, world_size
+        model, device, config, save_dir, logger, rank, world_size
     )
 
     # Finalize and save summary (master process only)
@@ -272,8 +269,8 @@ def main(config: dict):
         with open(os.path.join(save_dir, 'summary.json'), 'w') as f:
             json.dump(master_summary, f, indent=4)
         print('Training finished. Summary file saved.')
-        if comet_logger:
-            comet_logger.end()
+        if logger:
+            logger.end_run()
 
     cleanup_ddp()
 
