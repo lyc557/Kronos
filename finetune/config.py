@@ -6,13 +6,15 @@ class Config:
     """
 
     def __init__(self):
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        qlib_home = os.path.expanduser("~/.qlib/qlib_data/cn_data")
         # =================================================================
         # Data & Feature Parameters (数据与特征参数)
         # =================================================================
         # TODO: Update this path to your Qlib data directory.
         # Qlib数据存储路径：这里存放了从Qlib下载的原始金融数据（如股票日线数据）
         # 默认路径通常是 ~/.qlib/qlib_data/cn_data
-        self.qlib_data_path = "~/.qlib/qlib_data/cn_data"
+        self.qlib_data_path = qlib_home
         # 股票池：指定要训练的股票集合，如 'csi300' (沪深300), 'csi500' (中证500) 或 'all' (全市场)
         self.instrument = 'csi300'
         # self.instrument = ['SH600009']
@@ -49,7 +51,7 @@ class Config:
 
         # TODO: Directory to save the processed, pickled datasets.
         # 预处理数据保存路径：处理好的 .pkl 文件会存放在这里，下次可以直接加载，无需重复处理
-        self.dataset_path = "./data/processed_datasets"
+        self.dataset_path = os.path.join(base_dir, "data/processed_datasets")
 
         # =================================================================
         # Training Hyperparameters (训练超参数)
@@ -97,14 +99,14 @@ class Config:
         # Base directory for saving model checkpoints and results.
         # Using a general 'outputs' directory is a common practice.
         # 模型保存路径
-        self.save_path = "./outputs/models"
+        self.save_path = os.path.join(os.path.dirname(__file__), "outputs/models")
         self.tokenizer_save_folder_name = 'finetune_tokenizer_demo'
         self.predictor_save_folder_name = 'finetune_predictor_demo'
         self.backtest_save_folder_name = 'finetune_backtest_demo'
 
         # Path for backtesting results.
         # 回测结果保存路径
-        self.backtest_result_path = "./outputs/backtest_results"
+        self.backtest_result_path = os.path.join(os.path.dirname(__file__), "outputs/backtest_results")
 
         # =================================================================
         # Model & Checkpoint Paths (模型路径)
