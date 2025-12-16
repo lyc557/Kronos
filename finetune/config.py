@@ -42,10 +42,10 @@ class Config:
         # to account for the `lookback_window`.
         # 数据集划分：将时间轴划分为训练集、验证集、测试集、回测集
         # 注意：为了防止未来信息泄露，必须严格按时间顺序切分
-        self.train_time_range = ["2011-01-01", "2019-12-31"]  # 训练集：用于模型学习
-        self.val_time_range = ["2020-01-01", "2020-12-31"]    # 验证集：用于调参和早停
-        self.test_time_range = ["2021-01-01", "2021-12-31"]   # 测试集：用于最终评估
-        self.backtest_time_range = ["2021-01-01", "2021-12-31"] # 回测集：用于策略回测
+        self.train_time_range = ["2011-01-04", "2018-12-31"]  # 训练集：用于模型学习
+        self.val_time_range = ["2019-01-01", "2019-12-31"]    # 验证集：用于调参和早停
+        self.test_time_range = ["2020-01-01", "2020-09-25"]   # 测试集：用于最终评估
+        self.backtest_time_range = ["2020-01-01", "2020-09-25"] # 回测集：用于策略回测
 
         # TODO: Directory to save the processed, pickled datasets.
         # 预处理数据保存路径：处理好的 .pkl 文件会存放在这里，下次可以直接加载，无需重复处理
