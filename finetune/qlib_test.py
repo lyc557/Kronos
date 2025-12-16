@@ -184,6 +184,13 @@ class QlibBacktest:
                 bench_df['return'] = report_df['cum_bench']
 
         # Plotting results
+        if return_df.empty:
+            print("\n[Error] Return DataFrame is empty. Skipping plotting.")
+            print(f"Signals keys: {list(signals.keys())}")
+            for k, v in signals.items():
+                print(f"Signal '{k}' range: {v.index.min()} to {v.index.max()}")
+            return
+
         fig, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
         return_df.plot(ax=axes[0], title='Cumulative Return with Cost', grid=True)
         axes[0].plot(bench_df['return'], label=self.config.instrument.upper(), color='black', linestyle='--')
@@ -302,7 +309,7 @@ def generate_predictions(config: dict, test_data: dict) -> dict[str, pd.DataFram
 def main():
     """Main function to set up config, run inference, and execute backtesting."""
     parser = argparse.ArgumentParser(description="Run Kronos Inference and Backtesting")
-    parser.add_argument("--device", type=str, default="cuda:1", help="Device for inference (e.g., 'cuda:0', 'cpu')")
+    parser.add_argument("--device", type=str, default="cuda:0", help="Device for inference (e.g., 'cuda:0', 'cpu')")
     args = parser.parse_args()
 
     # --- 1. Configuration Setup ---

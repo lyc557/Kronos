@@ -10,3 +10,4 @@ git config --global user.email lyc557@163.com
 
 torchrun --nproc_per_node=1 train_tokenizer.py
 torchrun --nproc_per_node=1 train_predictor.py
+torchrun --nproc_per_node=1 qlib_test.py

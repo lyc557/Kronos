@@ -51,3 +51,7 @@ Qlib 的训练流程主要分为三步：
     ```bash
     torchrun --standalone --nproc_per_node=2 finetune/train_predictor.py
     ```
+5.  **测试模型**：
+    ```bash
+    torchrun --standalone --nproc_per_node=2 finetune/qlib_test.py
+    ```
