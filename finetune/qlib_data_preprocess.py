@@ -19,12 +19,17 @@ class QlibDataPreprocessor:
     def __init__(self):
         """Initializes the preprocessor with configuration and data fields."""
         self.config = Config()
+        # 这些字段是从 Qlib 原始行情中提取的基础价格与成交信息
+        # 作为量化任务的输入特征，后续会被加工成模型可用的矩阵
         self.data_fields = ['open', 'close', 'high', 'low', 'volume', 'vwap']
         self.data = {}  # A dictionary to store processed data for each symbol.
 
     def initialize_qlib(self):
         """Initializes the Qlib environment."""
         print("Initializing Qlib...")
+        # 初始化 Qlib 数据提供器
+        # provider_uri 指向已经准备好的日频/分钟频数据目录
+        # region=REG_CN 指定中国市场（沪深）的数据与交易日历
         qlib.init(provider_uri=self.config.qlib_data_path, region=REG_CN)
 
     def load_qlib_data(self):
@@ -40,6 +45,7 @@ class QlibDataPreprocessor:
         """
         print("Loading and processing data from Qlib...")
         data_fields_qlib = ['$' + f for f in self.data_fields]
+        # Qlib 的交易日历（或时间戳序列），用于精确切片数据时间范围
         cal: np.ndarray = D.calendar()
 
         # Determine the actual start and end times to load, including buffer for lookback and predict windows.
@@ -48,6 +54,8 @@ class QlibDataPreprocessor:
         end_index = cal.searchsorted(pd.Timestamp(self.config.dataset_end_time))
 
         # Check if start_index lookbackw_window will cause negative index
+        # 为了构造滑动窗口，训练输入需要“向前看”一段上下文长度
+        # 因此从 begin_time 对应索引再向前偏移 lookback_window 作为真实加载起点
         adjusted_start_index = max(start_index - self.config.lookback_window, 0)
         real_start_time = cal[adjusted_start_index]
 
@@ -58,10 +66,14 @@ class QlibDataPreprocessor:
             end_index -= 1
 
         # Check if end_index+predictw_window will exceed the range of the array
+        # 同理，真实加载终点需要向后偏移 predict_window，保证预测期数据可用
         adjusted_end_index = min(end_index + self.config.predict_window, len(cal) - 1)
         real_end_time = cal[adjusted_end_index]
 
         # Load data using Qlib's data loader.
+        # QlibDataLoader 返回一个 MultiIndex 的 DataFrame：
+        # 行索引包含 ['datetime', 'instrument']，列为字段（如 $open/$close）
+        # 这里按真实起止时间范围进行一次性加载
         data_df = QlibDataLoader(config=data_fields_qlib).load(
             self.config.instrument, real_start_time, real_end_time
         )
@@ -83,6 +95,9 @@ class QlibDataPreprocessor:
             print("\n[Debug] Warning: QlibDataLoader returned empty data!")
         # ------------------
 
+        # 将列层级（字段）压栈为行，再按第二层级展开
+        # 目标形态：列为“股票代码”，行索引为时间，单元格保存某字段取值
+        # 后续会逐股票进行透视，拼成统一的特征矩阵
         data_df = data_df.stack().unstack(level=1)  # Reshape for easier access.
 
         symbol_list = list(data_df.columns)
@@ -91,16 +106,21 @@ class QlibDataPreprocessor:
             symbol_df = data_df[symbol]
 
             # Pivot the table to have features as columns and datetime as index.
+            # 将“字段”变成列，“datetime”作为索引，得到每个时间点的多维特征
             symbol_df = symbol_df.reset_index().rename(columns={'level_1': 'field'})
             symbol_df = pd.pivot(symbol_df, index='datetime', columns='field', values=symbol)
             symbol_df = symbol_df.rename(columns={f'${field}': field for field in self.data_fields})
 
             # Calculate amount and select final features.
+            # 构造两个常用的交易特征：
+            # - vol：成交量（与原始 volume 同义）
+            # - amt：近似的成交额（用 OHLC 的均值乘以成交量），衡量资金流大小
             symbol_df['vol'] = symbol_df['volume']
             symbol_df['amt'] = (symbol_df['open'] + symbol_df['high'] + symbol_df['low'] + symbol_df['close']) / 4 * symbol_df['vol']
             symbol_df = symbol_df[self.config.feature_list]
 
             # Filter out symbols with insufficient data.
+            # 丢弃存在缺失值的时间点，并过滤掉长度不足以支撑“上下文 + 预测期”窗口的股票
             symbol_df = symbol_df.dropna()
             if len(symbol_df) < self.config.lookback_window + self.config.predict_window + 1:
                 continue
@@ -125,11 +145,16 @@ class QlibDataPreprocessor:
             symbol_df = self.data[symbol]
 
             # Define time ranges from config.
+            # 使用配置中定义的时间区间进行时序切分：
+            # - 训练集：用于参数学习
+            # - 验证集：用于调参与早停
+            # - 测试集：仅用于最终评估
             train_start, train_end = self.config.train_time_range
             val_start, val_end = self.config.val_time_range
             test_start, test_end = self.config.test_time_range
 
             # Create boolean masks for each dataset split.
+            # 通过布尔掩码进行切片，保持各股票在相同时间区间的对齐
             train_mask = (symbol_df.index >= train_start) & (symbol_df.index <= train_end)
             val_mask = (symbol_df.index >= val_start) & (symbol_df.index <= val_end)
             test_mask = (symbol_df.index >= test_start) & (symbol_df.index <= test_end)
@@ -140,6 +165,7 @@ class QlibDataPreprocessor:
             test_data[symbol] = symbol_df[test_mask]
 
         # Save the datasets using pickle.
+        # 将三份数据以 pickle 序列化保存，后续训练/回测脚本直接加载使用
         os.makedirs(self.config.dataset_path, exist_ok=True)
         with open(f"{self.config.dataset_path}/train_data.pkl", 'wb') as f:
             pickle.dump(train_data, f)

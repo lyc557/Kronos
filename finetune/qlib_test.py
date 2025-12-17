@@ -41,6 +41,8 @@ class QlibTestDataset(Dataset):
     def __init__(self, data: dict, config: Config):
         self.data = data
         self.config = config
+        # 一个样本的总窗口长度 = 上下文长度 + 预测长度
+        # 例如 lookback=60, predict=5，则窗口内共有 65 根 K 线
         self.window_size = config.lookback_window + config.predict_window
         self.symbols = list(self.data.keys())
         self.feature_list = config.feature_list
@@ -51,6 +53,8 @@ class QlibTestDataset(Dataset):
         for symbol in self.symbols:
             df = self.data[symbol].reset_index()
             # Generate time features on-the-fly
+            # 推理阶段按需构造时间特征（分钟/小时/周几/日期/月）
+            # 这些特征帮助模型理解时间位置与可能的季节性模式
             df['minute'] = df['datetime'].dt.minute
             df['hour'] = df['datetime'].dt.hour
             df['weekday'] = df['datetime'].dt.weekday
@@ -61,6 +65,8 @@ class QlibTestDataset(Dataset):
             num_samples = len(df) - self.window_size + 1
             if num_samples > 0:
                 for i in range(num_samples):
+                    # 用“上下文窗口的最后一个时间点”作为该样本的时间戳
+                    # 便于之后把预测值对齐回原始时间序列
                     timestamp = df.iloc[i + self.config.lookback_window - 1]['datetime']
                     self.indices.append((symbol, i, timestamp))
 
@@ -71,17 +77,21 @@ class QlibTestDataset(Dataset):
         symbol, start_idx, timestamp = self.indices[idx]
         df = self.data[symbol]
 
+        # 切出上下文与预测区间
         context_end = start_idx + self.config.lookback_window
         predict_end = context_end + self.config.predict_window
 
         context_df = df.iloc[start_idx:context_end]
         predict_df = df.iloc[context_end:predict_end]
 
+        # 取出数值特征与时间戳特征，并转换为 float32
         x = context_df[self.feature_list].values.astype(np.float32)
         x_stamp = context_df[self.time_feature_list].values.astype(np.float32)
         y_stamp = predict_df[self.time_feature_list].values.astype(np.float32)
 
         # Instance-level normalization, consistent with training
+        # 与训练阶段一致：对每个样本做实例级归一化
+        # 防止不同股票/不同时段的量纲差异影响模型表现
         x_mean, x_std = np.mean(x, axis=0), np.std(x, axis=0)
         x = (x - x_mean) / (x_std + 1e-5)
         x = np.clip(x, -self.config.clip, self.config.clip)
@@ -105,6 +115,7 @@ class QlibBacktest:
     def initialize_qlib(self):
         """Initializes the Qlib environment."""
         print("Initializing Qlib for backtesting...")
+        # 初始化回测环境：数据提供、交易撮合、交易日历等均由 Qlib 管理
         qlib.init(provider_uri=self.config.qlib_data_path, region=REG_CN)
 
     def run_single_backtest(self, signal_series: pd.Series) -> pd.DataFrame:
@@ -118,6 +129,7 @@ class QlibBacktest:
             pd.DataFrame: A DataFrame containing the performance report.
         """
         strategy = TopkDropoutStrategy(
+            # 每日选择得分最高的 top-k 个股票持有，同时根据得分变化与阈值进行部分调仓
             topk=self.config.backtest_n_symbol_hold,
             n_drop=self.config.backtest_n_symbol_drop,
             hold_thresh=self.config.backtest_hold_thresh,
@@ -129,6 +141,7 @@ class QlibBacktest:
             "delay_execution": True,
         }
         backtest_config = {
+            # 回测时间、初始资金、基准与交易细节（滑点/手续费/涨跌停限制等）
             "start_time": self.config.backtest_time_range[0],
             "end_time": self.config.backtest_time_range[1],
             "account": 100_000_000,
@@ -145,6 +158,7 @@ class QlibBacktest:
         report, _ = portfolio_metric_dict.get(analysis_freq)
 
         # --- Analysis and Reporting ---
+        # 常见风险指标：超额收益（相对基准）、考虑/不考虑交易成本两种口径
         analysis = {
             "excess_return_without_cost": risk_analysis(report["return"] - report["bench"], freq=analysis_freq),
             "excess_return_with_cost": risk_analysis(report["return"] - report["bench"] - report["cost"], freq=analysis_freq),
@@ -155,6 +169,7 @@ class QlibBacktest:
         print("\nExcess Return (w/ cost):", analysis["excess_return_with_cost"], sep='\n')
 
         report_df = pd.DataFrame({
+            # 构造累计曲线，便于直观比较策略与基准
             "cum_bench": report["bench"].cumsum(),
             "cum_return_w_cost": (report["return"] - report["cost"]).cumsum(),
             "cum_ex_return_w_cost": (report["return"] - report["bench"] - report["cost"]).cumsum(),
@@ -173,6 +188,7 @@ class QlibBacktest:
 
         for signal_name, pred_df in signals.items():
             print(f"\nBacktesting signal: {signal_name}...")
+            # 将预测矩阵（行：日期，列：股票）转为 (instrument, datetime) 的 MultiIndex Series
             pred_series = pred_df.stack()
             pred_series.index.names = ['datetime', 'instrument']
             pred_series = pred_series.swaplevel().sort_index()
@@ -215,6 +231,7 @@ def load_models(config: dict) -> tuple[KronosTokenizer, Kronos]:
     """Loads the fine-tuned tokenizer and predictor model."""
     device = torch.device(config['device'])
     print(f"Loading models onto device: {device}...")
+    # 从磁盘加载已训练好的 Tokenizer 与 Predictor，并切到推理模式
     tokenizer = KronosTokenizer.from_pretrained(config['tokenizer_path']).to(device).eval()
     model = Kronos.from_pretrained(config['model_path']).to(device).eval()
     return tokenizer, model
@@ -235,6 +252,7 @@ def collate_fn_for_inference(batch):
     x, x_stamp, y_stamp, symbols, timestamps = zip(*batch)
 
     # Stack the tensors to create a batch
+    # 将多个样本的张量堆叠成批次，字符串与时间戳保持列表形式便于后处理
     x_batch = torch.stack(x, dim=0)
     x_stamp_batch = torch.stack(x_stamp, dim=0)
     y_stamp_batch = torch.stack(y_stamp, dim=0)
@@ -271,6 +289,8 @@ def generate_predictions(config: dict, test_data: dict) -> dict[str, pd.DataFram
     results = defaultdict(list)
     with torch.no_grad():
         for x, x_stamp, y_stamp, symbols, timestamps in tqdm(loader, desc="Inference"):
+            # 自回归推理：逐步生成未来的价格序列（长度 pred_len）
+            # 采样参数 top_k/top_p/T 控制探索程度与随机性
             preds = auto_regressive_inference(
                 tokenizer, model, x.to(device), x_stamp.to(device), y_stamp.to(device),
                 max_context=config['max_context'], pred_len=config['pred_len'], clip=config['clip'],
@@ -280,6 +300,9 @@ def generate_predictions(config: dict, test_data: dict) -> dict[str, pd.DataFram
             preds = preds[:, -config['pred_len']:, :]
 
             # The 'close' price is at index 3 in `feature_list`
+            # 将模型输出转为常见的信号形式：
+            # - last：最后一天的预测收盘价相对当前收盘价的变化
+            # - mean/max/min：预测区间内的平均/最大/最小收盘价相对当前的变化
             last_day_close = x[:, -1, 3].numpy()
             signals = {
                 'last': preds[:, -1, 3] - last_day_close,
@@ -295,6 +318,7 @@ def generate_predictions(config: dict, test_data: dict) -> dict[str, pd.DataFram
     print("Post-processing predictions into DataFrames...")
     prediction_dfs = {}
     for sig_type, records in results.items():
+        # 整理为行：日期；列：股票；值：信号分数 的矩阵形式
         df = pd.DataFrame(records, columns=['datetime', 'instrument', 'score'])
         pivot_df = df.pivot_table(index='datetime', columns='instrument', values='score')
         prediction_dfs[sig_type] = pivot_df.sort_index()
@@ -343,6 +367,7 @@ def main():
     print(f"Loading test data from {test_data_path}...")
     with open(test_data_path, 'rb') as f:
         test_data = pickle.load(f)
+    # 打印载入的数据结构以便核对（股票字典，每个值是按时间索引的特征矩阵）
     print(test_data)
     # --- 3. Generate Predictions ---
     model_preds = generate_predictions(run_config, test_data)

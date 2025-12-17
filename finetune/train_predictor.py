@@ -43,6 +43,7 @@ def create_dataloaders(config: dict, rank: int, world_size: int):
     valid_dataset = QlibDataset('val')
     print(f"[Rank {rank}] Train dataset size: {len(train_dataset)}, Validation dataset size: {len(valid_dataset)}")
 
+    # 使用分布式采样器确保各进程划分到互不重叠的数据切片，训练阶段打乱，验证阶段保持顺序
     train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True)
     val_sampler = DistributedSampler(valid_dataset, num_replicas=world_size, rank=rank, shuffle=False)
 
@@ -80,6 +81,7 @@ def train_model(model, tokenizer, device, config, save_dir, logger, rank, world_
     """
     start_time = time.time()
     if rank == 0:
+        # 有效总批大小 = 单卡 batch_size × GPU 数目
         effective_bs = config['batch_size'] * world_size
         print(f"Effective BATCHSIZE per GPU: {config['batch_size']}, Total: {effective_bs}")
 
@@ -106,6 +108,7 @@ def train_model(model, tokenizer, device, config, save_dir, logger, rank, world_
         model.train()
         train_loader.sampler.set_epoch(epoch_idx)
 
+        # 固定每轮的随机种子，确保不同进程/不同轮次的采样可复现
         train_dataset.set_epoch_seed(epoch_idx * 10000 + rank)
         valid_dataset.set_epoch_seed(0)
 
@@ -115,19 +118,25 @@ def train_model(model, tokenizer, device, config, save_dir, logger, rank, world_
 
             # Tokenize input data on-the-fly
             with torch.no_grad():
+                # Tokenizer 将连续的价格序列编码为离散 token 序列
+                # 返回两个序列（例如两条通道/层级），half=True 以半精度提升速度与节省显存
                 token_seq_0, token_seq_1 = tokenizer.encode(batch_x, half=True)
 
             # Prepare inputs and targets for the language model
+            # 语言模型常用的“移位”方式：
+            # 输入序列去掉最后一个 token；输出目标是去掉第一个 token（即下一个 token）
             token_in = [token_seq_0[:, :-1], token_seq_1[:, :-1]]
             token_out = [token_seq_0[:, 1:], token_seq_1[:, 1:]]
 
             # Forward pass and loss calculation
             logits = model(token_in[0], token_in[1], batch_x_stamp[:, :-1, :])
+            # 头部计算交叉熵损失，分别对两条序列做监督并求和/加权
             loss, s1_loss, s2_loss = model.module.head.compute_loss(logits[0], logits[1], token_out[0], token_out[1])
 
             # Backward pass and optimization
             optimizer.zero_grad()
             loss.backward()
+            # 梯度裁剪以稳定训练，防止梯度爆炸
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=3.0)
             optimizer.step()
             scheduler.step()
@@ -168,6 +177,7 @@ def train_model(model, tokenizer, device, config, save_dir, logger, rank, world_
                 val_batches_processed_rank += 1
 
         # Reduce validation metrics
+        # 汇总所有进程的验证损失与批次数，计算全局平均
         val_loss_sum_tensor = torch.tensor(tot_val_loss_sum_rank, device=device)
         val_batches_tensor = torch.tensor(val_batches_processed_rank, device=device)
         dist.all_reduce(val_loss_sum_tensor, op=dist.ReduceOp.SUM)
@@ -219,6 +229,7 @@ def main(config: dict):
             'world_size': world_size,
         }
         if config.get('use_mlflow', False):
+            # 可选：记录训练过程至 MLflow，便于参数与指标的可视化与回溯
             mlflow.set_tracking_uri(config['mlflow_config']['tracking_uri'])
             mlflow.set_experiment(config['mlflow_config']['experiment_name'])
             mlflow.start_run(run_name=config['mlflow_run_name'])
@@ -229,6 +240,7 @@ def main(config: dict):
     dist.barrier()
 
     # Model Initialization
+    # 加载已微调好的 Tokenizer（冻结）与预训练的 Predictor 主体
     tokenizer = KronosTokenizer.from_pretrained(config['finetuned_tokenizer_path'])
     tokenizer.eval().to(device)
 

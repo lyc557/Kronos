@@ -46,6 +46,7 @@ def create_dataloaders(config: dict, rank: int, world_size: int):
     valid_dataset = QlibDataset('val')
     print(f"[Rank {rank}] Train dataset size: {len(train_dataset)}, Validation dataset size: {len(valid_dataset)}")
 
+    # 分布式采样器：按进程划分样本，训练集打乱，验证集保持顺序
     train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True)
     val_sampler = DistributedSampler(valid_dataset, num_replicas=world_size, rank=rank, shuffle=False)
 
@@ -90,6 +91,7 @@ def train_model(model, device, config, save_dir, logger, rank, world_size):
     """
     start_time = time.time()
     if rank == 0:
+        # 有效总批大小 = 单卡 batch_size × GPU 数目 × 累积步数
         effective_bs = config['batch_size'] * world_size * config['accumulation_steps']
         print(f"[Rank {rank}] BATCHSIZE (per GPU): {config['batch_size']}")
         print(f"[Rank {rank}] Effective total batch size: {effective_bs}")
@@ -121,6 +123,7 @@ def train_model(model, device, config, save_dir, logger, rank, world_size):
         train_loader.sampler.set_epoch(epoch_idx)
 
         # Set dataset seeds for reproducible sampling
+        # 固定每轮的随机种子，保证分布式环境下的采样一致可复现
         train_dataset.set_epoch_seed(epoch_idx * 10000 + rank)
         valid_dataset.set_epoch_seed(0)  # Keep validation sampling consistent
 
@@ -128,6 +131,7 @@ def train_model(model, device, config, save_dir, logger, rank, world_size):
             ori_batch_x = ori_batch_x.squeeze(0).to(device, non_blocking=True)
 
             # --- Gradient Accumulation Loop ---
+            # 把一个大 batch 切成若干小块，逐块反向传播，再统一 step
             current_batch_total_loss = 0.0
             for j in range(config['accumulation_steps']):
                 start_idx = j * (ori_batch_x.shape[0] // config['accumulation_steps'])
@@ -135,13 +139,18 @@ def train_model(model, device, config, save_dir, logger, rank, world_size):
                 batch_x = ori_batch_x[start_idx:end_idx]
 
                 # Forward pass
+                # 模型输出：
+                # - zs: (z_pre, z)，分别是“预测的重构”和“最终重构”
+                # - bsq_loss: VQ 向量量化的 codebook 损失（逼近离散字典）
                 zs, bsq_loss, _, _ = model(batch_x)
                 z_pre, z = zs
 
                 # Loss calculation
+                # 重构损失：让重构序列贴近原始输入
                 recon_loss_pre = F.mse_loss(z_pre, batch_x)
                 recon_loss_all = F.mse_loss(z, batch_x)
                 recon_loss = recon_loss_pre + recon_loss_all
+                # 组合总损失（此处权重均为 1，可在配置中调整）
                 loss = (recon_loss + bsq_loss) / 2  # Assuming w_1=w_2=1
 
                 loss_scaled = loss / config['accumulation_steps']
@@ -149,6 +158,7 @@ def train_model(model, device, config, save_dir, logger, rank, world_size):
                 loss_scaled.backward()
 
             # --- Optimizer Step after Accumulation ---
+            # 梯度裁剪与优化器更新，学习率由 OneCycleLR 动态调整
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
             optimizer.step()
             scheduler.step()
@@ -186,6 +196,7 @@ def train_model(model, device, config, save_dir, logger, rank, world_size):
                 val_sample_count_rank += ori_batch_x.size(0)
 
         # Reduce validation losses from all processes
+        # 聚合所有进程上的验证样本与损失，计算全局平均验证损失
         val_loss_sum_tensor = torch.tensor(tot_val_loss_sum_rank, device=device)
         val_count_tensor = torch.tensor(val_sample_count_rank, device=device)
         dist.all_reduce(val_loss_sum_tensor, op=dist.ReduceOp.SUM)
@@ -241,6 +252,7 @@ def main(config: dict):
             'world_size': world_size,
         }
         if config.get('use_mlflow', False):
+            # 使用 MLflow 跟踪本次训练的参数与指标，便于复现实验
             mlflow.set_tracking_uri(config['mlflow_config']['tracking_uri'])
             mlflow.set_experiment(config['mlflow_config']['experiment_name'])
             mlflow.start_run(run_name=config['mlflow_run_name'])
@@ -251,6 +263,7 @@ def main(config: dict):
     dist.barrier()  # Ensure save directory is created before proceeding
 
     # Model Initialization
+    # 从预训练的 Tokenizer 权重开始，并用 DDP 封装以进行多卡训练
     model = KronosTokenizer.from_pretrained(config['pretrained_tokenizer_path'])
     model.to(device)
     model = DDP(model, device_ids=[local_rank], find_unused_parameters=False)
